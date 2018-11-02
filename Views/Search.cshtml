@@ -1,0 +1,197 @@
+﻿@inherits Umbraco.Web.Mvc.UmbracoTemplatePage<ContentModels.Search>
+@using ContentModels = Umbraco.Web.PublishedContentModels;
+@using System.Text;
+@using System.Text.RegularExpressions;
+@using Examine;
+@using Examine.LuceneEngine.SearchCriteria;
+@{
+	Layout = "InsideMain.cshtml";
+}
+
+@{     
+            var term = Request.QueryString["q"];
+            var terms = term.Split(' ').Select(x => x.Escape());
+            var searcher = ExamineManager.Instance.SearchProviderCollection["uasMultiSearcher"];
+            var query = ExamineManager.Instance.CreateSearchCriteria()
+            .GroupedOr(new[]{"FileTextContent","bodyText","pageHeading","headlineContent","textContent","hsContent","calloutContent","metaDescription","nodeName","question","answer","newsHeading","newsTeaserText","newsContent","eventsTitle","eventsDescrption","eventTeaser","altSearch"}, term)
+            .Compile();
+            
+            var pageNumber = int.Parse(Request.QueryString["p"]);
+            var pageIndex = pageNumber - 1;
+            var pageSize = 10;
+            var skip = pageIndex * pageSize;
+            var maxResults = skip + pageSize;
+            var examineResults = searcher.Search(query,maxResults);
+            var totalCount = examineResults.TotalItemCount;
+            var totalPages = (int)Math.Ceiling((double)totalCount /(double)pageSize);
+            var paged = examineResults.Skip(skip);
+            var startPage = 1;
+            var truncateLen = 250;
+            var hiTerms = Tokenize(term);
+}
+            
+        <h5>There are (@totalCount) total results for your search for '<strong>@term</strong>' that are listed over @totalPages pages of results.</h5>
+        <script>
+            gtag('event', '@term' + '(' + @totalCount + ')', {'event_category':'Site Search', 'event_label':@totalCount});
+        </script>
+        
+       
+        <ul class="list-unstyled" id="searchResults">     
+        @foreach(var result in paged)
+        {
+            var theScore = result.Score;
+            if(result["__IndexType"]== "media"){
+            
+                var mediaNode = Umbraco.TypedMedia(result.Id);
+                if(mediaNode.ContentType.Alias == "File"){
+                
+                    var description = "No description available";
+                        if(result["FileTextContent"] != null){
+                            description = result["FileTextContent"].ToString();
+                        }
+                            //var description = mediaNode.HasValue("metaDescription") ? mediaNode.GetPropertyValue("metaDescription").ToString() : result["FileTextContent"].ToString();
+                        description = Truncate(description, truncateLen);
+                        <li><a href="@mediaNode.Url" data-score="@theScore" data-page="@pageNumber" class="mediaSearchLink">@Highlight(@mediaNode.Name, hiTerms)</a><br/>@Highlight(description, hiTerms)</li>
+                    }
+            } else {
+                var contentNode = Umbraco.TypedContent(result.Id);
+                string description = "No Description Available";
+                if(contentNode.HasValue("metaDescription")){
+                    description= contentNode.GetPropertyValue("metaDescription").ToString();
+                } else if(contentNode.HasValue("shortDescription")){
+                    description = contentNode.GetPropertyValue("shortDescription").ToString();
+                } else if(contentNode.HasValue("bodyText")){
+                    description = contentNode.GetPropertyValue("bodyText").ToString();
+                } else if(contentNode.HasValue("answer")){
+                    description = contentNode.GetPropertyValue("answer").ToString();
+                } else if(contentNode.HasValue("eventsDescrption")){
+                    description = contentNode.GetPropertyValue("eventsDescrption").ToString();
+                } else if(contentNode.HasValue("newsTeaserText")){
+                    description = contentNode.GetPropertyValue("newsTeaserText").ToString();
+                } else if(contentNode.HasValue("bodyText")){
+                    description = contentNode.GetPropertyValue("bodyText").ToString();
+                //} else if(result["bodyContent"]!= null && result["bodyContent"]!="" && !result["bodyContent"].Contains(": 12,")){
+                //    description = result["bodyContent"].ToString();
+                } else if(result["textContent"]!= null && result["textContent"]!=""){
+                    description = result["textContent"].ToString();
+                }
+                description = Umbraco.StripHtml(description).ToString();
+                description = Truncate(description, truncateLen).ToString();
+                var linkText = contentNode.Name;
+                @* contentNode.HasValue("pageHeading") ? contentNode.GetPropertyValue("pageHeading") :  *@
+                if(contentNode.HasValue("eventsTitle")){
+                    linkText = contentNode.GetPropertyValue<string>("eventsTitle");
+                } else if(contentNode.HasValue("newsHeading")){
+                    linkText = contentNode.GetPropertyValue<string>("newsHeading");
+                } else if(contentNode.HasValue("pageHeading")){
+                    linkText = contentNode.GetPropertyValue<string>("pageHeading");
+                }
+                if(description != ""){
+                <li><a href="@contentNode.Url" data-score="@theScore" data-page="@pageNumber" class="contentLink">@Highlight(linkText.ToString(), hiTerms)</a><br/>@Html.Raw(Highlight(description, hiTerms))</li> @* Html.Raw(description).ToString(), terms *@
+                }
+            }
+        }
+        </ul>
+       <nav aria-label="Page navigation">
+            <ul class="pagination">
+                
+                @for(int p = 1; p < totalPages +1; p++){
+                    string selected = (p == pageNumber) ? "active " : String.Empty;
+                    <li class="@(selected)page-item"><a href="/search?q=@term&p=@p" class="page-link">@p</a></li>
+                }
+                
+                
+            </ul>
+        </nav>
+
+        @functions
+{
+    // ==================================================
+    //  Helper Functions
+    //==================================================
+
+   // Cleanse the search term
+    public string CleanseSearchTerm(string input)
+    {
+        return Umbraco.StripHtml(input).ToString();
+    }
+
+    // Splits a string on space, except where enclosed in quotes
+    public IEnumerable<string> Tokenize(string input)
+    {
+        return Regex.Matches(input, @"[\""].+?[\""]|[^ ]+")
+            .Cast<Match>()
+            .Select(m => m.Value.Trim('\"'))
+            .ToList();
+    }
+
+    // Highlights all occurances of the search terms in a body of text
+    public IHtmlString Highlight(IHtmlString input, IEnumerable<string> searchTerms)
+    {
+        return Highlight(input.ToString(), searchTerms);
+    }
+
+    // Highlights all occurances of the search terms in a body of text
+    public IHtmlString Highlight(string input, IEnumerable<string> searchTerms)
+    {
+        input = HttpUtility.HtmlDecode(input);
+
+        foreach (var searchTerm in searchTerms)
+        {
+        if(searchTerm.Length > 1){
+            input = Regex.Replace(input, Regex.Escape(searchTerm), @"<span class='highlight'>$0</span>", RegexOptions.IgnoreCase);
+            }
+        }
+
+        return new HtmlString(input);
+    }
+
+    // Formats a string and returns as HTML
+    public IHtmlString FormatHtml(string input, params object[] args)
+    {
+        return Html.Raw(string.Format(input, args));
+    }
+
+    // Gets a dictionary value with a fallback
+    public string GetDictionaryValue(string key, string fallback)
+    {
+        var value = Umbraco.GetDictionaryValue(key);
+
+        return !string.IsNullOrEmpty(value)
+            ? value
+            : fallback;
+    }
+
+    // Truncates a string on word breaks
+    public string Truncate(IHtmlString input, int maxLength)
+    {
+        return Truncate(input.ToString(), maxLength);
+    }
+
+    // Truncates a string on word breaks
+    public string Truncate(string input, int maxLength)
+    {
+        var truncated = Umbraco.Truncate(input, maxLength, true).ToString();
+        if (truncated.EndsWith("&hellip;"))
+        {
+            var lastSpaceIndex = truncated.LastIndexOf(' ');
+            if(lastSpaceIndex > 0)
+            {
+                truncated = truncated.Substring(0, lastSpaceIndex) + "&hellip;";
+            }
+        }
+
+        return truncated;
+    }
+
+    // Splits a coma seperated string into a list
+    public IList<string> SplitToList(string input)
+    {
+        return input.Split(',')
+            .Select(f => f.Trim())
+            .Where(f => !string.IsNullOrEmpty(f))
+            .ToList();
+    }
+
+
+}

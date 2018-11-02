@@ -29,6 +29,12 @@ Take a look at the sample file and notice what all is happening here:
 4. note that editor aliases are important as well.
 5. there are helpers in this file that you **DO NOT** need for your project. Please only grab what you need.
 
+## The search View
+Finally, you need to wire up the search view - it is found in the Views folder in this project. I typically just put all this logic on the template, I think that is fine for here.
+- on line 16 you can see where all the aliases are listed that will be searched
+- 57-77 has all the logic for rendering the descriptive text with the search results
+- you just want to pay attention that all your aliases are matching up, etc.
+
 ## Finalization and Testing
 Once you get all this stuff in place, you should go to the developer section and go into the examine management tab. You shoudl build/rebuild the indexes you set up just to make sure they have all the nodes and properties that you expect. Note the the multindexer/multisearcher does not really work back here as this is custom. HOWEVER, you can check the content and pdf indexes and searches separately back here because we set up independent indexes and searchers to test.
 
